@@ -5,7 +5,7 @@ from tkinter.ttk import *
 from queue import Queue
 import threading
 import configparser
-
+import sys
 
 KEYS_LOCATION = 'keys.conf' #location of keys config file
 
@@ -32,17 +32,31 @@ class TwitterGui:
     def __init__(self, window, tweet_q):
         self.tweet_q = tweet_q
         self.window = window
-        self.newest = StringVar()
-        self.newest_label = Label(window, textvariable=self.newest)
-        self.newest_label.pack()
-        self.new_button = Button(window, text='next', command=self.update_newest)
-        self.new_button.pack()
+        self.cur_tweet = StringVar()
+        self.cur_tweet_lbl = Label(window, textvariable=self.cur_tweet)
+        self.cur_tweet_lbl.pack()
+        self.quit_button = Button(window, text="Quit", command=self.quit).pack(side=LEFT)
+        self.new_button = Button(window, text='next', command=self.update_tweet)
+        self.new_button.pack(side=LEFT)
+        self.scroll()
 
-
-    def update_newest(self, *args):
+    def scroll(self):
         if not self.tweet_q.empty():
-            self.newest.set(self.tweet_q.get())
+            current = self.cur_tweet.get()
+            next_tweet = self.tweet_q.get()
+            self.cur_tweet.set(next_tweet)
+            if current:
+                self.tweet_q.put(current)
+        if self.tweet_q.qsize() < 8:
+            self.window.after(5000, self.scroll)
 
+
+    def update_tweet(self, *args):
+        if not self.tweet_q.empty():
+            self.current_tweet.set(self.tweet_q.get())
+
+    def quit(self):
+        self.window.destroy()
 
 def read_conf(settings_location):
     """Read the given setting file
@@ -70,5 +84,7 @@ if __name__ == '__main__':
     tweet_q = Queue()
     gui = TwitterGui(window, tweet_q)
     t1 = threading.Thread(target=init_stream, args=(gui,))
+    t1.setDaemon(True)
+    gui.stream_thread = t1
     t1.start()
     window.mainloop()
