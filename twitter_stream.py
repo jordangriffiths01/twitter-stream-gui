@@ -2,12 +2,15 @@ import tweepy
 import json
 from tkinter import *
 from tkinter.ttk import *
+from tkinter.scrolledtext import *
 from queue import Queue
 import threading
 import configparser
 import sys
 
 KEYS_LOCATION = 'keys.conf' #location of keys config file
+CONSOLE_TEMPLATE = '{}: {}\n'
+TWEET_TEXT_TEMPLATE = '{:150}'
 
 # This is the listener, resposible for receiving data
 class StdOutListener(tweepy.StreamListener):
@@ -18,10 +21,10 @@ class StdOutListener(tweepy.StreamListener):
     def on_data(self, data):
         # Twitter returns data in JSON format
         decoded = json.loads(data)
-        #self.gui.event_generate('<<test>>', when='tail')
         #convert UTF-8 to ASCII
         tweet_text = '@%s: %s' % (decoded['user']['screen_name'], decoded['text'].encode('ascii', 'ignore'))
         self.gui.tweet_q.put(tweet_text)
+        self.gui.window.event_generate('<<new_tweet>>', when='tail')
         print(tweet_text)
         return True
 
@@ -31,32 +34,71 @@ class StdOutListener(tweepy.StreamListener):
 class TwitterGui:
     def __init__(self, window, tweet_q):
         self.tweet_q = tweet_q
+        self.display_q = Queue()
         self.window = window
-        self.cur_tweet = StringVar()
-        self.cur_tweet_lbl = Label(window, textvariable=self.cur_tweet)
-        self.cur_tweet_lbl.pack()
-        self.quit_button = Button(window, text="Quit", command=self.quit).pack(side=LEFT)
-        self.new_button = Button(window, text='next', command=self.update_tweet)
-        self.new_button.pack(side=LEFT)
+        self.output_tweet_text = StringVar()
+        self.current_tweet = None
+        self.tweet_input = StringVar()
+        self.console_frame = Frame(window)
+        self.console_frame.grid(row=3, column=0, columnspan=3)
+        self.tweet_console = ScrolledText(self.console_frame, wrap=WORD, width=170, height=40)
+        self.tweet_console.pack()
+        self.output_label = Label(window, textvariable=self.output_tweet_text)
+        self.output_label.grid(row=0, column=2, rowspan=2)
+        self.output_label.config(wraplength=600)
+        Button(window, text="Quit", command=self.quit).grid(row=2, column=0)
+        Entry(window, textvariable=self.tweet_input).grid(row=0, column=0)
+        Button(window, text='send', command=self.send_fake_tweet).grid(row=1, column=0)
         self.scroll()
+        self.number = 0
+        self.live_tweets = {}
+
+    def next_number(self):
+        self.number += 1
+        return self.number
+
+    def on_new_tweet(self, *args):
+        if not self.tweet_q.empty():
+            new_tweet_data = self.tweet_q.get()
+            self.add_tweet(new_tweet_data)
+
+    def add_tweet(self, tweet_text):
+        new_tweet = Tweet(tweet_text, self.next_number())
+        self.display_q.put(new_tweet)
+        self.live_tweets[new_tweet.number] = new_tweet
+        self.update_console()
+
+    def remove_tweet(self, tweet_num):
+        pass
+
+    def update_console(self):
+        console_text = ''
+        for tweet_num in sorted(self.live_tweets.keys()):
+            tweet = self.live_tweets[tweet_num]
+            console_text += CONSOLE_TEMPLATE.format(tweet.number, tweet.text)
+        self.tweet_console.delete('1.0', END)
+        self.tweet_console.insert(INSERT, console_text)
 
     def scroll(self):
-        if not self.tweet_q.empty():
-            current = self.cur_tweet.get()
-            next_tweet = self.tweet_q.get()
-            self.cur_tweet.set(next_tweet)
-            if current:
-                self.tweet_q.put(current)
-        if self.tweet_q.qsize() < 8:
-            self.window.after(5000, self.scroll)
+        if not self.display_q.empty():
+            if self.current_tweet: self.display_q.put(self.current_tweet)
+            self.current_tweet = self.display_q.get()
+            self.output_tweet_text.set(self.current_tweet.text)
+        self.window.after(5000, self.scroll)
 
 
-    def update_tweet(self, *args):
-        if not self.tweet_q.empty():
-            self.current_tweet.set(self.tweet_q.get())
+    def send_fake_tweet(self):
+        text = self.tweet_input.get()
+        self.add_tweet(text)
 
     def quit(self):
         self.window.destroy()
+
+class Tweet:
+    def __init__(self, text, number):
+        self.text =  TWEET_TEXT_TEMPLATE.format(text)
+        self.number = number
+        self.is_live = True
 
 def read_conf(settings_location):
     """Read the given setting file
@@ -72,7 +114,6 @@ def init_stream(gui):
     print('INITIALISING STREAMING')
     listener = StdOutListener(gui)
     keys = read_conf(KEYS_LOCATION)['MAIN']
-    print(keys)
     auth = tweepy.OAuthHandler(keys['consumer_key'], keys['consumer_secret'])
     auth.set_access_token(keys['access_token'], keys['access_token_secret'])
     stream = tweepy.Stream(auth, listener)
@@ -83,6 +124,7 @@ if __name__ == '__main__':
     window = Tk()
     tweet_q = Queue()
     gui = TwitterGui(window, tweet_q)
+    window.bind('<<new_tweet>>', gui.on_new_tweet)
     t1 = threading.Thread(target=init_stream, args=(gui,))
     t1.setDaemon(True)
     gui.stream_thread = t1
