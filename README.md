@@ -38,6 +38,6 @@ Python Queues are thread safe, and it is expected that the queue interface
 alone will be adequete for data transfer between tweepy thread and tkinter
 (main) thread.
 
-#Developer Contact
+##Developer Contact
 
 This repository is currently maintained by [Jordan Griffiths](https://github.com/jordangriffiths01).
