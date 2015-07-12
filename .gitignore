@@ -1,2 +1,3 @@
 # Ignore keys config file, to hide from public domain
 keys.conf
+*.pyc
